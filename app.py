@@ -1,24 +1,15 @@
-from datetime import datetime, date
-from bson import ObjectId
-import logging
-
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response
 from flask_restful import Api
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+import logging
 
-# Wichtig: Ergänzung
-from flask_restful.representations import json
-from json import JSONEncoder
+# 1) Deine CustomEncoder und output_json einfügen
+from datetime import datetime, date
+from bson import ObjectId
+import json
 
-from config import Config
-from utils.logging_config import configure_logging
-from resources.auth import Register, Login
-from resources.questions import QuestionsList
-from resources.lexicon import LexiconList
-
-# Hier definierst du den Encoder für Flask-RESTful:
-class CustomJSONEncoder(JSONEncoder):
+class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (datetime, date)):
             return obj.isoformat()
@@ -26,35 +17,31 @@ class CustomJSONEncoder(JSONEncoder):
             return str(obj)
         return super().default(obj)
 
-# Diese Zeile sagt Flask-RESTful: nutze unseren Encoder
-json.settings["cls"] = CustomJSONEncoder
+def output_json(data, code, headers=None):
+    resp = make_response(json.dumps(data, cls=CustomJSONEncoder), code)
+    resp.headers.extend(headers or {})
+    return resp
 
-
+# 2) Jetzt Flask app erstellen
 app = Flask(__name__)
-app.config.from_object(Config)
+...
 
-# JWT initialisieren
+# JWT, CORS etc.
 jwt = JWTManager(app)
-
-# CORS erlauben
 CORS(app)
 
-# Logging
-configure_logging(app.config['DEBUG'])
-
-# Flask-RESTful-API initialisieren (NACH dem Encoder-Setup)
+# 3) API erzeugen und representation überschreiben
 api = Api(app)
+api.representations['application/json'] = output_json
 
+# 4) Dann deine Routen / Resources hinzufügen
+...
+
+# 5) Errorhandler
 @app.errorhandler(Exception)
 def handle_exception(e):
-    logging.error(f"Exception: {e}")
-    return jsonify({'success': False, 'message': 'An internal server error occurred'}), 500
+    logging.error(f"Unhandled Exception: {e}")
+    return jsonify({'success': False, 'message': 'Internal Server Error'}), 500
 
-# Routen
-api.add_resource(Register, '/api/register')
-api.add_resource(Login, '/api/login')
-api.add_resource(QuestionsList, '/api/questions')
-api.add_resource(LexiconList, '/api/lexicon')
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=False)
