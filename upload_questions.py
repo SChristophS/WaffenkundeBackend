@@ -28,16 +28,28 @@ def upload_questions():
             questions_data = json.load(f)
 
         # Letzte Version in der MongoDB finden
-        last_version = db.questions.find_one(sort=[("version", -1)])
-        new_version = (last_version["version"] + 1) if last_version else 1
+        last_version_doc = db.questions.find_one(sort=[("version", -1)])
+        new_version = (last_version_doc["version"] + 1) if last_version_doc else 1
 
-        # Versionsnummer hinzufügen
-        questions_data["version"] = new_version
-        questions_data["uploaded_at"] = datetime.utcnow()
-
-        # JSON in die Datenbank einfügen
-        db.questions.insert_one(questions_data)
-        logging.info(f"Erfolgreich hochgeladen! Neue Version: {new_version}")
+        # Prüfen, ob questions_data eine Liste (mehrere Fragen) oder ein einzelnes Objekt ist.
+        if isinstance(questions_data, list):
+            # Wenn die JSON-Datei ein Array enthält, laden wir mehrere Dokumente hoch.
+            for doc in questions_data:
+                doc["version"] = new_version
+                doc["uploaded_at"] = datetime.utcnow()
+            # Alle auf einmal einfügen
+            db.questions.insert_many(questions_data)
+            logging.info(f"Erfolgreich hochgeladen! Neue Version: {new_version} "
+                         f"(Array mit {len(questions_data)} Fragen)")
+        elif isinstance(questions_data, dict):
+            # Wenn es ein einzelnes JSON-Objekt ist, laden wir genau ein Dokument hoch.
+            questions_data["version"] = new_version
+            questions_data["uploaded_at"] = datetime.utcnow()
+            db.questions.insert_one(questions_data)
+            logging.info(f"Erfolgreich hochgeladen! Neue Version: {new_version} "
+                         "(einzelnes JSON-Objekt)")
+        else:
+            logging.error("questions.json hat kein erwartetes Format (weder Array noch Objekt).")
 
     except Exception as e:
         logging.error(f"Fehler beim Hochladen der Fragen: {e}")
