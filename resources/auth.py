@@ -5,7 +5,7 @@ from flask_jwt_extended import create_access_token
 import logging
 from datetime import timedelta
 
-
+#
 from utils.validations import is_valid_email, is_valid_password  # Importiere die Validierungsfunktionen
 
 class Register(Resource):

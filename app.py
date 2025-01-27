@@ -19,7 +19,7 @@ jwt = JWTManager(app)
 # Cross-Origin Resource Sharing
 CORS(app)
 
-# Flask-RESTful API
+# Flask-RESTful API_
 api = Api(app)
 
 # Logging konfigurieren
