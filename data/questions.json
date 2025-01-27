@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "chapters": [
+    {
+      "id": "1",
+      "title": "Kapitel I: Waffenrecht und sonstige Rechtsvorschriften",
+      "questions": [
+        {
+          "id": "1.01",
+          "question": "Was regelt das Waffengesetz?",
+          "options": [],
+          "answer": "Das Waffengesetz regelt den Umgang mit Waffen oder Munition unter Berücksichtigung der Belange der öffentlichen Sicherheit und Ordnung.",
+          "type": "memorize"
+        },
+        {
+          "id": "1.02",
+          "question": "Umgang mit einer Schusswaffe hat…",
+          "options": [
+            "wer damit schießt.",
+            "wer die Waffe verbringt oder mitnimmt.",
+            "wer die Waffe unbrauchbar macht."
+          ],
+          "answer": 1,
+          "type": "multiple_choice"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Kapitel II: Rechte und Pflichten",
+      "questions": [
+        {
+          "id": "2.01",
+          "question": "Was muss der Erwerbsberechtigte nach dem Kauf einer Schusswaffe von einer Privatperson/Händler veranlassen?",
+          "options": [
+            "Er muss einen lizenzierten Waffenhändler einschalten.",
+            "Er muss den Kauf der zuständigen Behörde unter Vorlage des Kaufvertrages mitteilen.",
+            "Er muss innerhalb von zwei Wochen bei der zuständigen Behörde den Erwerb schriftlich oder elektronisch anzeigen und seine Waffenbesitzkarte zur Eintragung vorlegen."
+          ],
+          "answer": 2,
+          "type": "multiple_choice"
+        },
+        {
+          "id": "2.02",
+          "question": "Was muss ein Sportschütze nach dem dauerhaften Erwerb einer Waffe von einem anderen Sportschützen veranlassen?",
+          "options": [
+            "Nichts",
+            "Er muss den Erwerb innerhalb von zwei Wochen schriftlich oder elektronisch anzeigen und seine Waffenbesitzkarte bei der zuständigen Behörde vorlegen.",
+            "Beide Waffenbesitzkarten sofort der zuständigen Behörde vorlegen."
+          ],
+          "answer": 1,
+          "type": "multiple_choice"
+        }
+      ]
+    }
+  ]
+}

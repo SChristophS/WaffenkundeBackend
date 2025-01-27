@@ -57,17 +57,40 @@ class Login(Resource):
         username = args['username']
         password = args['password']
 
-        user_data = db.users.find_one({'username': username})
-        if not user_data:
-            logging.warning(f"Benutzer nicht gefunden: {username}")
-            return {'success': False, 'message': 'Invalid username or password'}, 401
+        try:
+            # Benutzer in der Datenbank suchen
+            user_data = db.users.find_one({'username': username})
+            if not user_data:
+                logging.warning(f"Benutzer nicht gefunden: {username}")
+                return {'success': False, 'message': 'Invalid username or password'}, 401
 
-        user = User(user_data)
-        if not user.check_password(password):
-            logging.warning(f"Ungültiges Passwort für Benutzer: {username}")
-            return {'success': False, 'message': 'Invalid username or password'}, 401
+            # Passwort überprüfen
+            user = User(user_data)
+            if not user.check_password(password):
+                logging.warning(f"Ungültiges Passwort für Benutzer: {username}")
+                return {'success': False, 'message': 'Invalid username or password'}, 401
 
-        access_token = create_access_token(identity=user.id, expires_delta=timedelta(hours=1))
-        logging.info(f"Benutzer eingeloggt: {username}")
-        return {'success': True, 'access_token': access_token, 'message': 'Login successful'}, 200
+            # Access Token generieren
+            access_token = create_access_token(identity=user.id, expires_delta=timedelta(hours=1))
+
+            # Neueste Version der Fragen abrufen
+            questions = db.questions.find_one(sort=[("version", -1)])
+            if not questions:
+                logging.error("Keine Fragen in der Datenbank gefunden.")
+                return {'success': False, 'message': 'No questions available'}, 500
+
+            # Fragen aus der Datenbank entfernen (ohne `_id`)
+            questions.pop('_id', None)
+
+            logging.info(f"Benutzer erfolgreich eingeloggt: {username}")
+            return {
+                'success': True,
+                'access_token': access_token,
+                'message': 'Login successful',
+                'questions': questions
+            }, 200
+
+        except Exception as e:
+            logging.error(f"Fehler beim Login: {e}")
+            return {'success': False, 'message': 'An error occurred during login'}, 500
 
