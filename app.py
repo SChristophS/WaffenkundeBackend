@@ -29,7 +29,8 @@ configure_logging(app.config['DEBUG'])
 @app.errorhandler(Exception)
 def handle_exception(e):
     logging.error(f"Unhandled Exception: {e}")
-    return jsonify({'message': 'An internal server error occurred'}), 500
+    return jsonify({'success': False, 'message': 'An internal server error occurred'}), 500
+
 
 # API-Ressourcen hinzufügen
 api.add_resource(Register, '/api/register')
