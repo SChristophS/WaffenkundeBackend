@@ -1,3 +1,19 @@
+
+from datetime import datetime, date
+from flask.json import JSONEncoder
+
+
+# 1) Erstelle eine eigene Klasse, die von JSONEncoder erbt.
+class CustomJSONEncoder(JSONEncoder):
+    def default(self, obj):
+        # Überprüfe, ob das Objekt ein Datum oder eine Zeit ist.
+        if isinstance(obj, (datetime, date)):
+            # Wandelt datetime oder date in einen ISO-8601-String um.
+            return obj.isoformat()
+        # Falls es kein Datum ist, rufe den Standard-Encoder auf.
+        return super().default(obj)
+      
+
 from flask import Flask, jsonify
 from flask_restful import Api
 from flask_cors import CORS
@@ -7,10 +23,11 @@ from utils.logging_config import configure_logging
 from resources.auth import Register, Login
 from resources.questions import QuestionsList
 from resources.lexicon import LexiconList
-import logging
-
+import logging      
+        
 # Flask-App-Instanz erstellen
 app = Flask(__name__)
+app.json_encoder = CustomJSONEncoder
 app.config.from_object(Config)
 
 # JWT initialisieren
