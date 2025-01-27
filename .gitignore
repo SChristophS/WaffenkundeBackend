@@ -1,0 +1,4 @@
+venv/
+*.pyc
+uploads/
+uploads_thumbnails/
