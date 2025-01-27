@@ -11,7 +11,7 @@ Das Backend dient als API-Server für die ExamApp. Es bietet Endpunkte für Benu
 1. Öffne ein Terminal auf deinem Raspberry Pi.
 2. Klone das Repository mit:
    ```bash
-   git clone <REPOSITORY_URL>
+   git clone https://github.com/SChristophS/WAA_WaffenkundeBackend
    cd <REPOSITORY_NAME>
    ```
 
