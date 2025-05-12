@@ -81,6 +81,25 @@ def reduced_game_doc(g: dict) -> dict:
         "friendAnswered": len(g["friendAnswers"]),
     }
 
+def _open_games_with_badge(user: str):
+    cur = games_coll.find(
+        {"finished": {"$ne": True},
+         "$or": [{"hostName": user}, {"friendName": user}]},
+        sort=[("createdAt", pymongo.ASCENDING)]
+    )
+    games, unseen = [], 0
+    for g in cur:
+        expose_id(g)
+        doc = reduced_game_doc(g)
+        opp_done = (doc["hostAnswered"]==doc["totalQuestions"] or
+                    doc["friendAnswered"]==doc["totalQuestions"])
+        me_done  = ((user==g["hostName"] and doc["hostAnswered"]==doc["totalQuestions"]) or
+                    (user==g["friendName"] and doc["friendAnswered"]==doc["totalQuestions"]))
+        if opp_done and not me_done:
+            unseen += 1
+        games.append(doc)
+    return games, unseen
+
    
 def _open_games(user: str) -> list[dict]:
     """Immer frisches Ergebnis, sortiert nach Erstellzeit."""
@@ -205,9 +224,17 @@ def games_new():
     if not friend or friend == host or not qs:
         return jsonify(msg="Bad data"), 400
     gid = games_coll.insert_one({
-        "hostName": host, "friendName": friend,
-        "questions": qs, "hostAnswers": [], "friendAnswers": [],
-        "createdAt": _now(), "finished": False
+        "hostName"        : host,
+        "friendName"      : friend,
+        "questions"       : qs,
+        "hostAnswers"     : [],
+        "friendAnswers"   : [],
+        "createdAt"       : _now(),
+        "finished"        : False,
+        "hostSeenResult"  : False,
+        "friendSeenResult": False,
+        "hostCorrect"     : 0,
+        "friendCorrect"   : 0
     }).inserted_id
     log.info("🎲  Spiel %s (%s vs %s, %d Fragen)", gid, host, friend, len(qs))
     
@@ -219,8 +246,9 @@ def games_new():
 @games_bp.get("/open/<user>")
 @jwt_required()
 def games_open(user):
-    return jsonify(openGames=_open_games(user.lower())), 200
-
+    games, unseen = _open_games_with_badge(user.lower())
+    return jsonify(openGames=games, unseenOpen=unseen), 200
+    
 @games_bp.get("/<gid>")
 @jwt_required()
 def games_get(gid):
@@ -231,6 +259,24 @@ def games_get(gid):
     if not g:
         return jsonify(msg="Not found"), 404
     expose_id(g); return jsonify(g), 200
+
+@games_bp.patch("/<gid>/seen")
+@jwt_required()
+def games_seen(gid):
+    user = get_jwt_identity().lower()
+    try:
+        obj = ObjectId(gid)
+    except (InvalidId, TypeError):
+        return jsonify(msg="bad id"), 400
+    g = games_coll.find_one({"_id": obj})
+    if not g or not g.get("finished"):
+        return jsonify(msg="not found / not finished"), 404
+    fld = ("hostSeenResult" if user == g["hostName"].lower() else
+           "friendSeenResult" if user == g["friendName"].lower() else None)
+    if fld is None:
+        return jsonify(msg="no access"), 403
+    games_coll.update_one({"_id": obj}, {"$set": {fld: True}})
+    return jsonify(ok=True), 200
 
 # ───────────────────────────────────────────────────────────
 #   PATCH /games/<gid>/answer   –  erweitert mit Debug-Logs
@@ -277,11 +323,63 @@ def games_answer(gid):
         {"$pull": {field: {"questionId": {"$in": qids}}}})
     res2 = games_coll.update_one({"_id": obj},
         {"$push": {field: {"$each": ans}}})
+        
+            # --- Auto-Finish prüfen ---------------------------------
+    game = games_coll.find_one({"_id": obj})  # frisch holen
+    total_q    = len(game["questions"])
+    host_cnt   = len(game["hostAnswers"])
+    friend_cnt = len(game["friendAnswers"])
+
+    if (not game.get("finished")
+        and host_cnt >= total_q and friend_cnt >= total_q):
+
+        def _cnt_ok(arr): return sum(1 for a in arr if a["isCorrect"])
+        host_ok   = _cnt_ok(game["hostAnswers"])
+        friend_ok = _cnt_ok(game["friendAnswers"])
+
+        games_coll.update_one({"_id": obj}, {"$set": {
+            "finished"        : True,
+            "finishedAt"      : _now(),
+            "hostCorrect"     : host_ok,
+            "friendCorrect"   : friend_ok,
+            "hostSeenResult"  : False,
+            "friendSeenResult": False
+        }})
+        log.info("🏁  Spiel %s automatisch beendet", gid)
 
     log.debug("📝  %s -> %s | %s  qids=%s  mongo pull=%s push=%s",
               user, gid, field, qids,
               res1.modified_count, res2.modified_count)
     return jsonify(ok=True), 200
+
+@games_bp.get("/finished/<user>")
+@jwt_required()
+def games_finished(user):
+    user = user.lower()
+    cur = games_coll.find(
+        {"finished": True,
+         "$or": [{"hostName": user}, {"friendName": user}]},
+        sort=[("finishedAt", pymongo.DESCENDING)]
+    )
+
+    finished, unseen = [], 0
+    for g in cur:
+        me_is_host = (user == g["hostName"].lower())
+        expose_id(g)
+        item = {
+            "id"        : g["id"],
+            "friendName": g["friendName"] if me_is_host else g["hostName"],
+            "total"     : len(g["questions"]),
+            "myCorrect" : g["hostCorrect"] if me_is_host else g["friendCorrect"],
+            "oppCorrect": g["friendCorrect"] if me_is_host else g["hostCorrect"],
+            "mySeen"    : g["hostSeenResult"] if me_is_host else g["friendSeenResult"],
+            "finishedAt": g.get("finishedAt")
+        }
+        if not item["mySeen"]:
+            unseen += 1
+        finished.append(item)
+    return jsonify(finishedGames=finished, unseenFinished=unseen), 200
+
 
 # finish / delete Endpunkte bleiben unverändert …
 @games_bp.post("/finish")
