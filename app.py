@@ -33,8 +33,12 @@ file = RotatingFileHandler(LOG_FILE, maxBytes=5_000_000,
                            backupCount=3, encoding="utf-8")
 file.setFormatter(console.formatter)
 logging.basicConfig(level=logging.DEBUG, handlers=[console, file])
+logging.getLogger('engineio').setLevel(logging.INFO)
+logging.getLogger('socketio').setLevel(logging.INFO)
 log = logging.getLogger(__name__)
 log.info("🚀  Backend startet …")
+
+
 
 # ───────── Config / DB ─────────────────────────
 from config import Config
@@ -112,9 +116,40 @@ def _open_games(user: str) -> list[dict]:
     log.debug("📤 openGames(%s) → %d Treffer", user, len(out))
     return out    
 
+def _unread_chat(name: str) -> int:
+    """Wie viele Chat-Nachrichten an ‹name› haben read != True?"""
+    return chat_coll.count_documents({"to": name, "read": {"$ne": True}})
+
+def _pending_requests(name: str) -> int:
+    """Offene Freundschaftsanfragen für ‹name›."""
+    return friend_requests_coll.count_documents(
+        {"to_user": name, "status": "pending"}
+    )
+    
+def _news_counts(name: str) -> dict:
+    """Alle Badge-Zähler in einem Rutsch neu berechnen."""
+    _, unseen_open = _open_games_with_badge(name)
+    return {
+        "unreadMessages"      : _unread_chat(name),
+        "openGames"           : unseen_open,
+        "pendingFriendRequests": _pending_requests(name),
+    }
+    
 user_sid: dict[str, set[str]] = {}
 sid_user: dict[str, str]      = {}
 
+def _push_delta(user: str, delta: dict):
+    """Kleines Delta (z. B. +1 openGames) an alle Sockets des Users."""
+    log.debug("🔔  _push_delta(%s, %s)", user, delta)
+    for sid in user_sid.get(user, ()):
+        log.debug("🔔  emit to sid=%s room=%s", sid, user)
+        socketio.emit("notification", delta, room=sid)
+
+def _push_full(user: str, *, to_sid: str | None = None):
+    """Kompletten Zähler-Reset schicken (notification_reset)."""
+    emit("notification_reset", _news_counts(user),
+         room=(to_sid or user))
+         
 # ───────── Auth / Freunde ───────────────────────
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -238,6 +273,9 @@ def games_new():
     }).inserted_id
     log.info("🎲  Spiel %s (%s vs %s, %d Fragen)", gid, host, friend, len(qs))
     
+    for u in (host, friend):
+        _push_delta(u, {"openGames": 1})
+        
     gid_str = str(gid)
     log.info("🎲  Spiel %s (%s vs %s, %d Fragen)",
              gid_str, host, friend, len(qs))
@@ -381,7 +419,7 @@ def games_finished(user):
     return jsonify(finishedGames=finished, unseenFinished=unseen), 200
 
 
-# finish / delete Endpunkte bleiben unverändert …
+# finish / delete Endpunkte
 @games_bp.post("/finish")
 @jwt_required()
 def games_finish():
@@ -397,6 +435,10 @@ def games_finish():
     if not r.matched_count:
         return jsonify(msg="Not found / no access"), 404
     log.info("🏁  Spiel %s beendet von %s", gid, user)
+    
+    for u in (g["hostName"].lower(), g["friendName"].lower()):
+        _push_full(u)
+        
     return jsonify(ok=True), 200
 
 @games_bp.delete("/<gid>")
@@ -445,7 +487,14 @@ def s_init(name):
         "pendingFriendRequests": friend_requests_coll.count_documents(
             {"to_user":name,"status":"pending"})
     }, room=request.sid)
+    log.debug("🔗  s_init: %s -> %s", request.sid, name)
 
+@socketio.on("refresh_notifications")
+def s_refresh(_):
+    name = sid_user.get(request.sid)
+    if name:
+        _push_full(name, to_sid=request.sid)
+        
 # ───────── Hooks / Health ─────────────────────────
 @app.before_request
 def _log_req():
