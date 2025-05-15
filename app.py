@@ -88,21 +88,26 @@ def reduced_game_doc(g: dict) -> dict:
 def _open_games_with_badge(user: str):
     cur = games_coll.find(
         {"finished": {"$ne": True},
-         "$or": [{"hostName": user}, {"friendName": user}]},
+         "$or"     : [{"hostName": user}, {"friendName": user}]},
         sort=[("createdAt", pymongo.ASCENDING)]
     )
+
     games, unseen = [], 0
     for g in cur:
         expose_id(g)
         doc = reduced_game_doc(g)
-        opp_done = (doc["hostAnswered"]==doc["totalQuestions"] or
-                    doc["friendAnswered"]==doc["totalQuestions"])
-        me_done  = ((user==g["hostName"] and doc["hostAnswered"]==doc["totalQuestions"]) or
-                    (user==g["friendName"] and doc["friendAnswered"]==doc["totalQuestions"]))
-        if opp_done and not me_done:
+
+        # Nur darauf schauen, ob ICH schon fertig bin
+        me_done = (
+            (user == g["hostName"]   and doc["hostAnswered"]  == doc["totalQuestions"]) or
+            (user == g["friendName"] and doc["friendAnswered"] == doc["totalQuestions"])
+        )
+        if not me_done:
             unseen += 1
+
         games.append(doc)
     return games, unseen
+
 
    
 def _open_games(user: str) -> list[dict]:
@@ -146,9 +151,12 @@ def _push_delta(user: str, delta: dict):
         socketio.emit("notification", delta, room=sid)
 
 def _push_full(user: str, *, to_sid: str | None = None):
-    """Kompletten Zähler-Reset schicken (notification_reset)."""
-    emit("notification_reset", _news_counts(user),
-         room=(to_sid or user))
+    """Komplette Badge-Zahlen schicken."""
+    payload = _news_counts(user)
+    if to_sid:                               # Ein einzelner Socket
+        socketio.emit("notification_reset", payload, room=to_sid)
+    else:                                    # Ganzer User-Room
+        socketio.emit("notification_reset", payload, room=user)
          
 # ───────── Auth / Freunde ───────────────────────
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -271,11 +279,13 @@ def games_new():
         "hostCorrect"     : 0,
         "friendCorrect"   : 0
     }).inserted_id
-    log.info("🎲  Spiel %s (%s vs %s, %d Fragen)", gid, host, friend, len(qs))
     
-    for u in (host, friend):
-        _push_delta(u, {"openGames": 1})
-        
+    log.info("🎲  Spiel %s (%s vs %s, %d Fragen)", gid, host, friend, len(qs))
+
+    # ----- Badge-Zähler neu berechnen und senden  -------------------
+    unseen_open = _open_games_with_badge(friend)[1]   # nur die Zahl interessiert
+    _push_delta(friend, {"openGames": unseen_open})   # ABSOLUTER Wert
+
     gid_str = str(gid)
     log.info("🎲  Spiel %s (%s vs %s, %d Fragen)",
              gid_str, host, friend, len(qs))
@@ -424,22 +434,29 @@ def games_finished(user):
 @jwt_required()
 def games_finish():
     user = get_jwt_identity().lower()
-    gid  = (request.json or {}).get("gameId","")
+    gid  = (request.json or {}).get("gameId", "")
     try:
         obj = ObjectId(gid)
     except (InvalidId, TypeError):
         return jsonify(msg="Bad ID"), 400
-    r = games_coll.update_one(
-        {"_id":obj,"$or":[{"hostName":user},{"friendName":user}]},
-        {"$set":{"finished":True,"finishedAt":_now()}})
-    if not r.matched_count:
+
+    # Spiel holen, um hostName/friendName zu kennen
+    g = games_coll.find_one({"_id": obj})
+    if not g or user not in {g["hostName"].lower(), g["friendName"].lower()}:
         return jsonify(msg="Not found / no access"), 404
+    if g.get("finished"):
+        return jsonify(msg="Already finished"), 409
+
+    games_coll.update_one({"_id": obj},
+                          {"$set": {"finished": True, "finishedAt": _now()}})
     log.info("🏁  Spiel %s beendet von %s", gid, user)
-    
+
+    # Badges beider Spieler aktualisieren
     for u in (g["hostName"].lower(), g["friendName"].lower()):
         _push_full(u)
-        
+
     return jsonify(ok=True), 200
+
 
 @games_bp.delete("/<gid>")
 @jwt_required()
