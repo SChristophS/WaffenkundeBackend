@@ -11,6 +11,7 @@ Backend für Lern-App  – 2025-05-12
 import os, sys, json, logging, datetime as dt, eventlet
 eventlet.monkey_patch()
 
+import re
 from logging.handlers import RotatingFileHandler
 from flask import Flask, request, jsonify, Blueprint
 from flask_cors import CORS
@@ -202,6 +203,26 @@ def _friendship_status(a,b):
         return "pending"
     return None
 
+@auth_bp.get("/friends/search")
+@jwt_required(optional=True)        # Token ist nice-to-have, aber keine Pflicht
+def search_users():
+    """
+    Liefert bis zu 10 User-Namen, die mit ‹name› beginnen
+    (case-insensitive). Beispiel:
+
+        GET /auth/search?name=ch
+        → {"users": ["chris", "charlie", "Cheyenne"]}
+    """
+    prefix = (request.args.get("name") or "").lower().strip()
+    if len(prefix) < 2:
+        return jsonify(msg="mind. 2 Buchstaben"), 400
+
+    regex = re.compile(rf"^{re.escape(prefix)}", re.IGNORECASE)
+    cur   = users_coll.find({"name": regex}, {"name": 1}).limit(10)
+    users = [u["name"] for u in cur]
+
+    return jsonify(users=users), 200
+    
 @auth_bp.post("/friends/request")
 @jwt_required()
 def send_request():
