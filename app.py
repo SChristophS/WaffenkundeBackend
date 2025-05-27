@@ -60,8 +60,6 @@ log.info("🗄️  MongoDB verbunden – DB: %s", db.name)
 users_coll, chat_coll, friends_coll  = db["users"], db["chat"], db["friends"]
 games_coll, friend_requests_coll     = db["games"], db["friend_requests"]
 
-
-
 @app.before_request
 def dbg_route():
     if request.path == "/games/new":
@@ -159,6 +157,174 @@ def _push_full(user: str, *, to_sid: str | None = None):
     else:                                    # Ganzer User-Room
         socketio.emit("notification_reset", payload, room=user)
          
+         
+# ───────── Analytics ───────────────────────
+# backend/app.py (oder analytics.py)
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+analytics_bp = Blueprint("analytics", __name__, url_prefix="/analytics")
+
+# ───────── Leaderboard  (NEU)  ──────────────────────────────────────────
+#
+#  GET /analytics/leaderboard?metric=<m>
+#        metric =  accuracy | answered | wins      (default accuracy)
+#
+#  →  [
+#        {"rank": 1, "username": "alice",
+#         "accuracy": 93.7, "answered": 456, "wins": 37},
+#        ...
+#     ]
+# -----------------------------------------------------------------------
+
+@analytics_bp.get("/leaderboard")
+@jwt_required(optional=True)                 # Token nice-to-have, aber nicht Pflicht
+def leaderboard():
+    metric = (request.args.get("metric") or "accuracy").lower()
+    if metric not in ("accuracy", "answered", "wins"):
+        return jsonify(msg="bad metric"), 400
+
+    # ---------- Aggregation-Pipeline für question_attempts -------------
+    pipe_attempts = [
+        {"$group": {
+            "_id"      : "$username",
+            "answered" : {"$sum": 1},
+            "correct"  : {"$sum": {"$cond": ["$isCorrect", 1, 0]}},
+        }},
+        {"$addFields": {
+            "accuracy": {
+                "$cond": [
+                    {"$eq": ["$answered", 0]}, 0,
+                    {"$divide": [{"$multiply": ["$correct", 100]}, "$answered"]}
+                ]
+            }
+        }}
+    ]
+    attempts = {d["_id"]: d for d in
+                db["question_attempts"].aggregate(pipe_attempts)}
+
+    # ---------- Aggregation-Pipeline für games (Siege) -----------------
+    pipe_wins = [
+        {"$match": {"finished": True}},
+        {"$project": {
+            "winner": {
+                "$cond": [
+                    {"$gt": ["$hostCorrect", "$friendCorrect"]}, "$hostName",
+                    {"$cond": [
+                        {"$gt": ["$friendCorrect", "$hostCorrect"]},
+                        "$friendName",
+                        None     # Unentschieden
+                    ]}
+                ]
+            }
+        }},
+        {"$match": {"winner": {"$ne": None}}},
+        {"$group": {"_id": "$winner", "wins": {"$sum": 1}}}
+    ]
+    for g in db["games"].aggregate(pipe_wins):
+        attempts.setdefault(g["_id"], {}).update(wins=g["wins"])
+
+    # ---------- Liste aufbereiten -------------------------------------
+    rows = []
+    for u, d in attempts.items():
+        rows.append({
+            "username": u,
+            "answered": int(d.get("answered", 0)),
+            "accuracy": round(float(d.get("accuracy", 0)), 1),
+            "wins"    : int(d.get("wins", 0)),
+        })
+
+    key = {"accuracy": "accuracy",
+           "answered": "answered",
+           "wins"    : "wins"}[metric]
+
+    rows.sort(key=lambda r: (-r[key], r["username"]))    # DESC + tie-break
+
+    # Ränge vergeben + eigene Position merken
+    me   = get_jwt_identity()            # None, falls ohne Token aufgerufen
+    mine = None
+    for i, r in enumerate(rows, start=1):
+        r["rank"] = i
+        if me and r["username"].lower() == me.lower():
+            mine = r
+
+    top100 = rows[:100]
+
+    payload = {"rows": top100}           # Tabelle für die Rangliste
+    if mine and mine not in top100:      # Steht nicht in Top-100 …
+        payload["me"] = mine             # … aber kommt separat mit
+
+    return jsonify(payload), 200
+
+
+@analytics_bp.post("/attempts")
+@jwt_required()
+def log_attempts():
+    user = get_jwt_identity()
+    data = request.get_json(force=True, silent=False) or {}
+    session_id = data.get("sessionId")
+    answers = data.get("answers", [])
+    if not session_id or not isinstance(answers, list):
+        return jsonify(msg="Invalid payload"), 400
+
+    docs = []
+    for a in answers:
+        docs.append({
+            "username": user,
+            "questionId": a["questionId"],
+            "timestamp": a["timestamp"],
+            "isCorrect": a["isCorrect"],
+            "sessionId": session_id,
+            "chapterTitle": a["chapterTitle"],
+            "subchapterId": a["subchapterId"],
+            "subchapterTitle": a["subchapterTitle"],
+        })
+    if docs:
+        db["question_attempts"].insert_many(docs)
+    return jsonify(inserted=len(docs)), 200
+
+@analytics_bp.get("/attempts/user/<username>")
+@jwt_required()
+def attempts_for_user(username):
+    user = get_jwt_identity()
+    if username.lower() != user.lower():
+        return jsonify(msg="forbidden"), 403
+    cur = db["question_attempts"].find({"username": username})
+    out = [expose_id(doc) for doc in cur]
+    return jsonify(attempts=out), 200
+    
+@analytics_bp.route("/attempts/batch", methods=["POST"])
+@jwt_required()
+def attempts_batch():
+    user = get_jwt_identity()
+    data = request.get_json(force=True) or {}
+    attempts = data.get("attempts", [])
+    if not isinstance(attempts, list) or not attempts:
+        return jsonify(msg="invalid payload"), 400
+
+    # jedes Attempt-Objekt erweitern:
+    docs = []
+    for a in attempts:
+        docs.append({
+            "_id"            : ObjectId(),          # optional
+            "username"       : user,
+            "questionId"     : a.get("questionId"),
+            "timestamp"      : a.get("timestamp") or dt.utcnow().isoformat(),
+            "isCorrect"      : bool(a.get("isCorrect")),
+            "sessionId"      : a.get("sessionId", ""),
+            "chapterTitle"   : a.get("chapterTitle", ""),
+            "subchapterId"   : a.get("subchapterId", ""),
+            "subchapterTitle": a.get("subchapterTitle", ""),
+        })
+
+    if docs:
+        db["question_attempts"].insert_many(docs)   # db kommt aus app.py
+    return jsonify(inserted=len(docs)), 200
+    
+app.register_blueprint(analytics_bp)
+
+
+         
 # ───────── Auth / Freunde ───────────────────────
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -182,6 +348,8 @@ def register():
 def login():
     d = request.json or {}
     name, pw = d.get("name","").lower().strip(), d.get("password","")
+    log.info("➕  User %s versucht sich anzumelden", name)
+    log.info("➕  pw %s ", pw)
     if not verify_password(db, name, pw):
         return jsonify(msg="Login fehlgeschlagen"), 401
     log.info("🔑  Login OK für %s", name)
@@ -494,6 +662,10 @@ def games_delete(gid):
         return jsonify(msg="Already finished"), 409
     games_coll.delete_one({"_id":obj})
     log.warning("🗑️  Spiel %s von %s gelöscht", gid, user)
+    # ---- Badge-Zähler beider Spieler neu senden -----------------
+    for u in (g["hostName"].lower(), g["friendName"].lower()):
+        _push_full(u)
+
     return jsonify(ok=True), 200
 
 app.register_blueprint(games_bp)
