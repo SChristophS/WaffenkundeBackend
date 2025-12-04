@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtualenv / Tools
+.venv/
+venv/
+env/
+.env
+.env.*
+.jwt_secret
+.python-version
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & runtime artifacts
+log.txt
+*.log
+*.pid
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Bytecode caches
+.mypy_cache/
+
+# OS / Sonstiges
+Thumbs.db
+desktop.ini
+
+

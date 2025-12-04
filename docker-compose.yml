@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:4.0
+    container_name: waffenkunde-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: WaffenkundeApp
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      # optional, nur falls du von außen auf Mongo zugreifen willst
+      - "27017:27017"
+
+  backend:
+    build: .
+    container_name: waffenkunde-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      # Alle Werte kommen aus den Stack‑Umgebungsvariablen (Portainer/.env),
+      # mit sinnvollen Defaults für DEV.
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/WaffenkundeApp}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      FEEDBACK_ADMINS: ${FEEDBACK_ADMINS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_MAX_BYTES: ${LOG_MAX_BYTES:-5000000}
+      LOG_BACKUP_COUNT: ${LOG_BACKUP_COUNT:-5}
+      PORT: ${PORT:-2001}
+    ports:
+      - "2001:2001"
+    command: >
+      gunicorn -k eventlet -w 1 -b 0.0.0.0:2001 run:app
+
+volumes:
+  mongo_data:
+
+
