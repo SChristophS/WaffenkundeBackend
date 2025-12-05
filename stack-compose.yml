@@ -22,9 +22,9 @@ services:
   mongo:
     image: mongo:6
     restart: unless-stopped
-    # Falls du extern auf Mongo zugreifen willst, Port freigeben:
-    # ports:
-    #   - "27017:27017"
+    # Externer Zugriff auf Mongo über Port 27018 (intern weiterhin 27017)
+    ports:
+      - "27018:27017"
     volumes:
       - mongo_data:/data/db
     networks:
