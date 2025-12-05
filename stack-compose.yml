@@ -22,7 +22,9 @@ services:
   mongo:
     image: mongo:6
     restart: unless-stopped
-    # Kein externer Port-Mapping nötig; Backend greift intern über das Docker-Netzwerk zu.
+    # Externer Zugriff auf Mongo über anderen Host-Port, um Konflikt mit 27017 zu vermeiden
+    ports:
+      - "32717:27017"
     volumes:
       - mongo_data:/data/db
     networks:
