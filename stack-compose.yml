@@ -1,0 +1,66 @@
+version: "3.8"
+
+services:
+  backend:
+    # HINWEIS: Image-Namen ggf. an eigene Registry anpassen
+    image: waffenkunde-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Fallbacks, falls nicht in .env definiert
+      PORT: "2001"
+      FLASK_DEBUG: "false"
+      MONGO_URI: "mongodb://mongo:27017/WaffenkundeApp"
+    depends_on:
+      - mongo
+    ports:
+      - "2001:2001"
+    networks:
+      - backend_net
+
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    # Falls du extern auf Mongo zugreifen willst, Port freigeben:
+    # ports:
+    #   - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - backend_net
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - backend_net
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - backend_net
+
+networks:
+  backend_net:
+    driver: overlay
+
+volumes:
+  mongo_data:
+  prometheus_data:
+  grafana_data:
+
+

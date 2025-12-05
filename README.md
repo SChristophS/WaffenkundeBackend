@@ -126,3 +126,14 @@ Dann ist das Backend unter `http://localhost:2001` erreichbar.
   - `Authorization: Bearer <access-token>`
 
 
+### 5. Betrieb in Portainer als Stack inkl. Monitoring
+
+- Lege in Portainer einen neuen **Stack** an (Swarm- oder Standalone-Modus) und verwende die Datei `stack-compose.yml` aus diesem Repository.
+- Passe bei Bedarf das `image` des `backend`-Services an (z.B. eigenes Registry-Image); der Container erwartet Port `2001` und eine MongoDB unter `mongodb://mongo:27017/WaffenkundeApp`.
+- Die wichtigsten Endpunkte im Betrieb:
+  - Backend: `http://<host>:2001` (z.B. Healthcheck `/health`)
+  - Prometheus: `http://<host>:9090`
+  - Grafana: `http://<host>:3000` (Default-Login: `admin` / `admin`)
+- Das Backend exportiert Prometheus-Metriken unter `http://<host>:2001/metrics` (Counter für Requests und Latenz-Histogramm pro Pfad); Prometheus ist in `monitoring/prometheus.yml` bereits so konfiguriert, dass es den Service `backend` abfragt.
+
+

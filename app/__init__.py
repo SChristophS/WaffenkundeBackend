@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 
 from config import Config
 from .extensions import cors, jwt, socketio, init_logging, init_db
+from .metrics import init_metrics
 
 # Blueprints
 from .blueprints.auth import auth_bp
@@ -116,6 +117,13 @@ def create_app() -> Flask:
     # --- Feedback-Admins loggen (nur Info) ---
     app.config["FEEDBACK_ADMINS"] = os.environ.get("FEEDBACK_ADMINS", "")
     log.info("FEEDBACK_ADMINS=%s", app.config["FEEDBACK_ADMINS"])
+
+    # --- Prometheus-Metriken initialisieren ---
+    try:
+        init_metrics(app)
+        log.info("Prometheus-Metriken aktiviert – /metrics Endpoint verfügbar.")
+    except Exception as e:
+        log.warning(f"⚠️ Konnte Prometheus-Metriken nicht initialisieren: {e}")
 
     # --- Blueprints registrieren ---
     app.register_blueprint(auth_bp)
