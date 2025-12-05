@@ -56,7 +56,9 @@ services:
 
 networks:
   backend_net:
-    driver: overlay
+    # Für Portainer-Compose-Stacks reicht ein benutzerdefiniertes Bridge-Netzwerk.
+    # (Für Swarm-Stacks könntest du hier 'overlay' verwenden.)
+    driver: bridge
 
 volumes:
   mongo_data:
